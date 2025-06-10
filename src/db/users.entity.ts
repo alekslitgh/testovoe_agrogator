@@ -1,26 +1,13 @@
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
-import { ApiProperty } from "@nestjs/swagger";
+import { BaseEntity, Column, Entity } from 'typeorm';
+import { ApiProperty } from '@nestjs/swagger';
 
 @Entity()
-export class User {
-  @ApiProperty()
-  @PrimaryGeneratedColumn('uuid')
-  id: string
-
+export class User extends BaseEntity {
   @ApiProperty()
   @Column({ unique: true })
-  email: string
+  email: string;
 
   // select = false не достаёт пароль из юзера, если это прямо не указано
   @Column({ select: false })
   password: string;
-
-
-  @ApiProperty()
-  @CreateDateColumn()
-  created_at: Date;
-
-  @ApiProperty()
-  @UpdateDateColumn()
-  updated_at: Date;
 }
