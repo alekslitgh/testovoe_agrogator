@@ -29,11 +29,9 @@ export class Product extends BaseEntity {
   @ManyToOne(() => User, (user) => user.products)
   user: User;
 
-  @ManyToMany(() => ProductCategory, (category) => category.products, {
-    cascade: true,
-  })
+  @ManyToMany(() => ProductCategory, (category) => category.products)
   @JoinTable({
-    name: 'product_category',
+    name: 'products_categories',
     joinColumn: {
       name: 'product_id',
       referencedColumnName: 'id',
