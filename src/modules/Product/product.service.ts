@@ -1,6 +1,5 @@
 import { Product } from '@entities/product.entity';
 import {
-  ForbiddenException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -8,22 +7,29 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { User } from 'src/db/users.entity';
-import { In, Repository } from 'typeorm';
-import { ProductDto, PaginationDto, UpdateProductDto } from './dto';
+import { Repository } from 'typeorm';
+import {
+  ProductDto,
+  UpdateProductDto,
+  PaginatedProductResponse,
+  ProductQueryDto,
+} from './dto';
 import { ProductCategory } from '@entities/index';
+import { CategoryService } from '@modules/Categories/categories.service';
+import { plainToInstance } from 'class-transformer';
 
 @Injectable()
 export class ProductService {
   constructor(
     @InjectRepository(Product)
     private readonly productRepository: Repository<Product>,
-    @InjectRepository(ProductCategory)
-    private categoryRepository: Repository<ProductCategory>,
+    private categoryService: CategoryService,
   ) {}
 
-  async create(user: User, dto: ProductDto) {
+  async create(user: User, dto: ProductDto): Promise<Product> {
     const existProduct = await this.productRepository.findOneBy({
       name: dto.name,
+      user: { id: user.id },
     });
 
     if (existProduct) {
@@ -38,56 +44,69 @@ export class ProductService {
       user,
     });
 
+    if (dto.categoryNames?.length) {
+      product.categories = await this.handleCategories(dto.categoryNames, user);
+    }
+
     return this.productRepository.save(product);
   }
 
-  async findAll(pagination: PaginationDto, category: string, user: User) {
-    const { page = 1, limit = 10 } = pagination;
+  async findAll(
+    query: ProductQueryDto,
+    user: User,
+  ): Promise<PaginatedProductResponse> {
+    const { page = 1, limit = 10, categories } = query;
     const skip = (page - 1) * limit;
 
-    const query = this.productRepository
+    const queryBuilder = this.productRepository
       .createQueryBuilder('product')
       .leftJoinAndSelect('product.categories', 'category')
       .where('product.userId = :userId', { userId: user.id });
 
-    if (category) {
-      query.andWhere('category.name = :category', { category });
+    if (categories && categories.length > 0) {
+      queryBuilder.andWhere('category.name IN (:...categories)', {
+        categories,
+      });
     }
 
-    const [products, total] = await query
+    const [items, total] = await queryBuilder
       .skip(skip)
       .take(limit)
       .getManyAndCount();
 
     return {
-      data: products,
+      data: plainToInstance(ProductDto, items),
       meta: {
         total,
         page,
-        last_page: Math.ceil(total / limit),
+        limit,
+        totalPages: Math.ceil(total / limit),
       },
     };
   }
 
-  async findOne(name: string, user: User) {
+  async findOne(id: string, user: User): Promise<Product> {
     const product = await this.productRepository.findOne({
       where: {
+        id,
         user: { id: user.id },
-        name,
       },
       relations: ['categories'],
     });
 
     if (!product) {
-      throw new NotFoundException(`Продукт ${name} не найден`);
+      throw new NotFoundException(`Продукт ${id} не найден`);
     }
 
     return product;
   }
 
-  async update(id: string, updateProductDto: UpdateProductDto, user: User) {
+  async update(
+    updateProductDto: UpdateProductDto,
+    user: User,
+  ): Promise<Product> {
     const product = await this.productRepository.findOne({
-      where: { id, user: { id: user.id } },
+      where: { id: updateProductDto.id, user: { id: user.id } },
       relations: ['categories'],
     });
 
@@ -96,7 +115,7 @@ export class ProductService {
     }
 
     if (updateProductDto.categoryNames) {
-      product.categories = await this.validateCategoriesByName(
+      product.categories = await this.handleCategories(
         updateProductDto.categoryNames,
         user,
       );
@@ -106,23 +125,41 @@ export class ProductService {
     return this.productRepository.save(product);
   }
 
-  private async validateCategoriesByName(
+  async remove(id: string, user: User): Promise<Product> {
+    const product = await this.findOne(id, user);
+    return this.productRepository.remove(product);
+  }
+
+  private async handleCategories(
+    // проверяем категории товара, если нет - создаем новые
     categoryNames: string[],
     user: User,
   ): Promise<ProductCategory[]> {
-    const categories = await this.categoryRepository.find({
-      where: {
-        name: In(categoryNames),
-        user: { id: user.id },
-      },
-    });
+    const existingCategories = await this.categoryService.findAll(
+      { page: 1, limit: 1000 },
+      user,
+    );
 
-    if (categories.length !== categoryNames.length) {
-      throw new ForbiddenException(
-        'Заданы неверные или несуществующие категории',
-      );
-    }
+    const existingCategoryNames = existingCategories.categories.map(
+      (c) => c.name,
+    );
+    const categoriesToCreate = categoryNames.filter(
+      (name) => !existingCategoryNames.includes(name),
+    );
 
-    return categories;
+    await Promise.all(
+      categoriesToCreate.map((name) =>
+        this.categoryService.create(user, { name }),
+      ),
+    );
+
+    const allCategories = await this.categoryService.findAll(
+      { page: 1, limit: 1000 },
+      user,
+    );
+
+    return allCategories.categories.filter((c) =>
+      categoryNames.includes(c.name),
+    );
   }
 }
