@@ -5,9 +5,11 @@ export const swaggerConfig = () => {
     .setTitle('example')
     .setDescription('API')
     .setVersion('1.0')
-    .addApiKey(
+    .addBearerAuth(
       {
-        type: 'apiKey',
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
         name: 'Authorization',
         in: 'header',
         description: 'Enter your token',
