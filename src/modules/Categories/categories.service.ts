@@ -9,14 +9,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { User } from 'src/db/users.entity';
 import { Repository } from 'typeorm';
 import { ProductCategory } from '@entities/index';
-import {
-  CategoryDto,
-  CreateCategoryDto,
-  PaginatedCategoryResponse,
-  UpdateCategoryDto,
-} from './dto';
+import { CreateCategoryDto, UpdateCategoryDto } from './dto';
 import { PaginationDto } from 'src/shared';
-import { plainToInstance } from 'class-transformer';
 
 @Injectable()
 export class CategoryService {
@@ -58,6 +52,10 @@ export class CategoryService {
     });
 
     return { categories, total };
+  }
+
+  async findAllWithoutPagination(user: User): Promise<ProductCategory[]> {
+    return this.categoryRepository.find({ where: { user: { id: user.id } } });
   }
 
   async findOne(id: string, user: User): Promise<ProductCategory> {

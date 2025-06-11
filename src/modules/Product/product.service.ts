@@ -17,6 +17,7 @@ import {
 import { ProductCategory } from '@entities/index';
 import { CategoryService } from '@modules/Categories/categories.service';
 import { plainToInstance } from 'class-transformer';
+import { CreateProductDto } from './dto/create-product.dto';
 
 @Injectable()
 export class ProductService {
@@ -26,26 +27,31 @@ export class ProductService {
     private categoryService: CategoryService,
   ) {}
 
-  async create(user: User, dto: ProductDto): Promise<Product> {
-    const existProduct = await this.productRepository.findOneBy({
-      name: dto.name,
-      user: { id: user.id },
+  async create(user: User, dto: CreateProductDto): Promise<Product> {
+    const existingProduct = await this.productRepository.findOne({
+      where: {
+        name: dto.name,
+        user: { id: user.id },
+      },
     });
 
-    if (existProduct) {
+    if (existingProduct) {
       throw new HttpException(
         `Продукт с названием ${dto.name} уже существует!`,
         HttpStatus.CONFLICT,
       );
     }
 
-    const product = this.productRepository.create({
-      ...dto,
-      user,
-    });
+    const product = new Product();
+    product.name = dto.name;
+    product.price = dto.price;
+    product.description = dto.description;
+    product.user = user;
 
-    if (dto.categoryNames?.length) {
-      product.categories = await this.handleCategories(dto.categoryNames, user);
+    if (dto.categories) {
+      const categories =
+        await this.categoryService.findAllWithoutPagination(user);
+      product.categories = categories;
     }
 
     return this.productRepository.save(product);
@@ -121,7 +127,8 @@ export class ProductService {
       );
     }
 
-    Object.assign(product, updateProductDto);
+    product.name = updateProductDto.name;
+    product.description = updateProductDto.description;
     return this.productRepository.save(product);
   }
 
@@ -147,19 +154,16 @@ export class ProductService {
       (name) => !existingCategoryNames.includes(name),
     );
 
-    await Promise.all(
+    const createdCategories = await Promise.all(
       categoriesToCreate.map((name) =>
         this.categoryService.create(user, { name }),
       ),
     );
 
-    const allCategories = await this.categoryService.findAll(
-      { page: 1, limit: 1000 },
-      user,
-    );
+    const allCategories = existingCategories.categories
+      .filter((c) => existingCategoryNames.includes(c.name))
+      .concat(createdCategories);
 
-    return allCategories.categories.filter((c) =>
-      categoryNames.includes(c.name),
-    );
+    return allCategories;
   }
 }
